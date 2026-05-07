@@ -42,7 +42,7 @@ void os_getDevKey (u1_t* buf) { memcpy_P(buf, APPKEY, 16); }
 // ====================================================================
 static uint8_t mydata[8]; // On a largement la place (on va utiliser 6 octets)
 static osjob_t sendjob;
-const unsigned TX_INTERVAL = 30;
+const unsigned TX_INTERVAL = 10;
 
 const lmic_pinmap lmic_pins = {
     .nss = 18, 
@@ -135,7 +135,7 @@ void onEvent (ev_t ev) {
         case EV_JOINING: displayMsg("RESEAU", "Tentative de\nconnexion..."); break;
         case EV_JOINED:  displayMsg("RESEAU", "CONNECTE !\nPrêt pour l'envoi"); break;
         case EV_TXCOMPLETE:
-            displayMsg("RESEAU", "Transmission OK\nProchain : 30s");
+            displayMsg("RESEAU", "Transmission OK\nProchain : 10s");
             os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
             break;
         default: break;
