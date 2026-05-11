@@ -5,20 +5,20 @@
 #include <Adafruit_SSD1306.h>
 #include <lmic.h>
 #include <hal/hal.h>
-
-// --- NOUVEAU : Bibliothèques pour le capteur de température ---
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
 // --- Configuration Matérielle ---
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define TDS_PIN 34      // Pin analogique pour le TDS
-#define LEVEL_PIN 35           // Pin analogique pour le SEN0257
-#define VREF 3.3             // Tension de référence ESP32
-
-// --- NOUVEAU : Configuration DS18B20 ---
+#define TDS_PIN 34           
+#define LEVEL_PIN 35         
 #define ONE_WIRE_BUS 13 
+#define VREF 3.3             
+
+// --- NOUVEAU : Configuration Capteur Infrarouge ---
+#define IR_PIN 14
+
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
@@ -40,9 +40,10 @@ void os_getDevKey (u1_t* buf) { memcpy_P(buf, APPKEY, 16); }
 // ====================================================================
 // 2. VARIABLES ET MAPPING PINOUT
 // ====================================================================
-static uint8_t mydata[8]; // On a largement la place (on va utiliser 6 octets)
+// NOUVEAU : On passe le tableau à 9 octets pour accueillir le booléen de l'infrarouge
+static uint8_t mydata[9]; 
 static osjob_t sendjob;
-const unsigned TX_INTERVAL = 10;
+const unsigned TX_INTERVAL = 10; // Toutes les 10 secondes (comme discuté précédemment)
 
 const lmic_pinmap lmic_pins = {
     .nss = 18, 
@@ -74,7 +75,6 @@ void do_send(osjob_t* j){
         // --- 1. LECTURE ACCÉLÉROMÈTRE ---
         float max_G = 0.0;
         float min_G = 10000.0; 
-
         for(int i = 0; i < 50; i++) {
             sensors_event_t event; 
             mma.getEvent(&event);
@@ -96,19 +96,19 @@ void do_send(osjob_t* j){
         // --- 3. LECTURE TEMPÉRATURE DS18B20 ---
         sensors.requestTemperatures(); 
         float tempC = sensors.getTempCByIndex(0);
-        
-        // On multiplie par 100 pour garder 2 décimales. 
-        // On utilise int16_t (signé) au cas où la température descend en dessous de zéro !
         int16_t tempPayload = (int16_t)(tempC * 100);
 
-        // --- 4. NOUVEAU : LECTURE NIVEAU D'EAU (SEN0257) ---
+        // --- 4. LECTURE NIVEAU D'EAU (SEN0257) ---
         int rawLevelADC = analogRead(LEVEL_PIN);
         float levelVoltage = rawLevelADC * VREF / 4095.0;
-        
-        // On multiplie par 1000 pour envoyer des millivolts (ex: 2.15V devient 2150 mV)
         uint16_t levelPayload = (uint16_t)(levelVoltage * 1000);
 
-        // --- 5. PRÉPARATION DU PAQUET (Maintenant 8 octets !) ---
+        // --- 5. NOUVEAU : LECTURE CAPTEUR INFRAROUGE ---
+        // digitalRead lit l'état de la broche. On inverse (!) le résultat pour 
+        // avoir "true" (1) quand il y a un obstacle (le capteur renvoie LOW/0).
+        bool obstaclePresence = !digitalRead(IR_PIN);
+
+        // --- 6. PRÉPARATION DU PAQUET (9 octets) ---
         mydata[0] = vibrationLevel >> 8; 
         mydata[1] = vibrationLevel & 0xFF;
         
@@ -118,14 +118,16 @@ void do_send(osjob_t* j){
         mydata[4] = tempPayload >> 8;
         mydata[5] = tempPayload & 0xFF;
 
-        // NOUVEAU : Ajout du niveau d'eau
         mydata[6] = levelPayload >> 8;
         mydata[7] = levelPayload & 0xFF;
 
-        // On passe la taille du payload à 8 !
-        LMIC_setTxData2(1, mydata, 8, 0);
+        // NOUVEAU : Ajout de la présence (1 = true, 0 = false) sur le 9ème octet (index 8)
+        mydata[8] = obstaclePresence ? 1 : 0;
+
+        // On passe la taille du payload à 9 !
+        LMIC_setTxData2(1, mydata, 9, 0);
         
-        displayMsg("LORA : ENVOI", "Capteurs OK\nPaquet : 8 octets");
+        displayMsg("LORA : ENVOI", "Capteurs OK\nPaquet : 9 octets");
         Serial.println(F("Données envoyées !"));
     }
 }
@@ -151,6 +153,9 @@ void setup() {
     Wire.setClock(100000); 
     delay(200);            
 
+    // NOUVEAU : Initialisation de la broche infrarouge en entrée
+    pinMode(IR_PIN, INPUT_PULLUP);
+
     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { for(;;); }
     displayMsg("BOOT", "Demarrage...");
 
@@ -159,7 +164,6 @@ void setup() {
         while (1);
     }
     
-    // NOUVEAU : Démarrage du capteur de température
     sensors.begin();
 
     os_init();
