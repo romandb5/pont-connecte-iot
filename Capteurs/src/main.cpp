@@ -16,7 +16,7 @@
 #define ONE_WIRE_BUS 13 
 #define VREF 3.3             
 
-// --- NOUVEAU : Configuration Capteur Infrarouge ---
+// --- Configuration Capteur Infrarouge ---
 #define IR_PIN 14
 
 OneWire oneWire(ONE_WIRE_BUS);
@@ -26,7 +26,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_MMA8451 mma = Adafruit_MMA8451();
 
 // ====================================================================
-// 1. TES CLÉS LORAWAN 
+// 1. CLÉS LORAWAN 
 // ====================================================================
 static const u1_t PROGMEM APPEUI[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8); }
@@ -40,10 +40,10 @@ void os_getDevKey (u1_t* buf) { memcpy_P(buf, APPKEY, 16); }
 // ====================================================================
 // 2. VARIABLES ET MAPPING PINOUT
 // ====================================================================
-// NOUVEAU : On passe le tableau à 9 octets pour accueillir le booléen de l'infrarouge
+// On passe le tableau à 9 octets pour accueillir tout les capteurs
 static uint8_t mydata[9]; 
 static osjob_t sendjob;
-const unsigned TX_INTERVAL = 10; // Toutes les 10 secondes (comme discuté précédemment)
+const unsigned TX_INTERVAL = 10; // Toutes les 10 secondes
 
 const lmic_pinmap lmic_pins = {
     .nss = 18, 
@@ -121,10 +121,9 @@ void do_send(osjob_t* j){
         mydata[6] = levelPayload >> 8;
         mydata[7] = levelPayload & 0xFF;
 
-        // NOUVEAU : Ajout de la présence (1 = true, 0 = false) sur le 9ème octet (index 8)
         mydata[8] = obstaclePresence ? 1 : 0;
 
-        // On passe la taille du payload à 9 !
+        // Taille du payload à 9
         LMIC_setTxData2(1, mydata, 9, 0);
         
         displayMsg("LORA : ENVOI", "Capteurs OK\nPaquet : 9 octets");
@@ -153,7 +152,7 @@ void setup() {
     Wire.setClock(100000); 
     delay(200);            
 
-    // NOUVEAU : Initialisation de la broche infrarouge en entrée
+    // Initialisation de la broche infrarouge en entrée
     pinMode(IR_PIN, INPUT_PULLUP);
 
     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { for(;;); }
