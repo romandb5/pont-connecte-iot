@@ -26,7 +26,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_MMA8451 mma = Adafruit_MMA8451();
 
 // ====================================================================
-// 1. CLÉS LORAWAN 
+// 1. TES CLÉS LORAWAN 
 // ====================================================================
 static const u1_t PROGMEM APPEUI[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8); }
@@ -40,10 +40,10 @@ void os_getDevKey (u1_t* buf) { memcpy_P(buf, APPKEY, 16); }
 // ====================================================================
 // 2. VARIABLES ET MAPPING PINOUT
 // ====================================================================
-// On passe le tableau à 9 octets pour accueillir tout les capteurs
+// On passe le tableau à 9 octets pour accueillir le booléen de l'infrarouge
 static uint8_t mydata[9]; 
 static osjob_t sendjob;
-const unsigned TX_INTERVAL = 10; // Toutes les 10 secondes
+const unsigned TX_INTERVAL = 10; // Toutes les 10 secondes 
 
 const lmic_pinmap lmic_pins = {
     .nss = 18, 
@@ -73,25 +73,31 @@ void do_send(osjob_t* j){
         Serial.println(F("TX en cours, attente..."));
     } else {
         // --- 1. LECTURE ACCÉLÉROMÈTRE ---
-        float max_G = 0.0;
-        float min_G = 10000.0; 
-        for(int i = 0; i < 50; i++) {
-            sensors_event_t event; 
-            mma.getEvent(&event);
-            float magnitude = sqrt(event.acceleration.x * event.acceleration.x + 
-                                   event.acceleration.y * event.acceleration.y + 
-                                   event.acceleration.z * event.acceleration.z);
-            if(magnitude > max_G) max_G = magnitude;
-            if(magnitude < min_G) min_G = magnitude;
-            delay(2);
-        }
-        float delta_vibration = max_G - min_G; 
-        uint16_t vibrationLevel = (uint16_t)(delta_vibration * 100);
+        sensors_event_t event; 
+        mma.getEvent(&event);
+        
+        // Calcul de la magnitude totale 3D
+        float magnitude = sqrt(event.acceleration.x * event.acceleration.x + 
+                               event.acceleration.y * event.acceleration.y + 
+                               event.acceleration.z * event.acceleration.z);
+        
+        // On retire la gravité terrestre (~9.81 m/s2) pour isoler la secousse.
+        // On utilise abs() pour que la valeur soit toujours positive, même si ça "descend".
+        float vibration_instantanee = abs(magnitude - 9.81);
+        
+        // Préparation pour l'envoi LoRa (x100 pour garder 2 décimales)
+        uint16_t vibrationLevel = (uint16_t)(vibration_instantanee * 100);
 
         // --- 2. LECTURE TDS ---
         int rawADC = analogRead(TDS_PIN);
         float voltage = rawADC * VREF / 4095.0;
-        uint16_t tdsValue = (uint16_t)(voltage * 500); 
+        uint16_t tdsValue = 0; // On initialise à 0 par défaut
+        
+        // Si la tension dépasse 0.8V (seuil à ajuster selon vos tests), on calcule la valeur.
+        // Sinon, elle reste à 0, ignorant ainsi le bruit de la broche flottante.
+        if (voltage > 0.8) { 
+            tdsValue = (uint16_t)(voltage * 500); 
+        }
 
         // --- 3. LECTURE TEMPÉRATURE DS18B20 ---
         sensors.requestTemperatures(); 
@@ -101,9 +107,15 @@ void do_send(osjob_t* j){
         // --- 4. LECTURE NIVEAU D'EAU (SEN0257) ---
         int rawLevelADC = analogRead(LEVEL_PIN);
         float levelVoltage = rawLevelADC * VREF / 4095.0;
-        uint16_t levelPayload = (uint16_t)(levelVoltage * 1000);
+        uint16_t levelPayload = 0; // On initialise à 0 par défaut
+        
+        // Le SEN0257 renvoie 0.5V à 0 bar. 
+        // On met le seuil à 0.55V ou 0.6V pour absorber les fluctuations et le bruit.
+        if (levelVoltage > 0.55) {
+            levelPayload = (uint16_t)(levelVoltage * 1000);
+        }
 
-        // --- 5. NOUVEAU : LECTURE CAPTEUR INFRAROUGE ---
+        // --- 5. LECTURE CAPTEUR INFRAROUGE ---
         // digitalRead lit l'état de la broche. On inverse (!) le résultat pour 
         // avoir "true" (1) quand il y a un obstacle (le capteur renvoie LOW/0).
         bool obstaclePresence = !digitalRead(IR_PIN);
@@ -121,9 +133,10 @@ void do_send(osjob_t* j){
         mydata[6] = levelPayload >> 8;
         mydata[7] = levelPayload & 0xFF;
 
+        // Ajout de la présence (1 = true, 0 = false) sur le 9ème octet (index 8)
         mydata[8] = obstaclePresence ? 1 : 0;
 
-        // Taille du payload à 9
+        // On passe la taille du payload à 9 !
         LMIC_setTxData2(1, mydata, 9, 0);
         
         displayMsg("LORA : ENVOI", "Capteurs OK\nPaquet : 9 octets");
