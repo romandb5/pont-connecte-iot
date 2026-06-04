@@ -15,15 +15,15 @@
 #define LEVEL_PIN 35         
 #define ONE_WIRE_BUS 13 
 #define VREF 3.3             
-
-// --- Configuration Capteur Infrarouge ---
 #define IR_PIN 14
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
-
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-Adafruit_MMA8451 mma = Adafruit_MMA8451();
+
+// DÉCLARATION DES 2 ACCÉLÉROMÈTRES
+Adafruit_MMA8451 mma1 = Adafruit_MMA8451();
+Adafruit_MMA8451 mma2 = Adafruit_MMA8451();
 
 // ====================================================================
 // 1. CLÉS LORAWAN 
@@ -40,10 +40,10 @@ void os_getDevKey (u1_t* buf) { memcpy_P(buf, APPKEY, 16); }
 // ====================================================================
 // 2. VARIABLES ET MAPPING PINOUT
 // ====================================================================
-// On passe le tableau à 9 octets pour accueillir le booléen de l'infrarouge
-static uint8_t mydata[9]; 
+// Le tableau passe à 11 octets (2 octets supplémentaires pour MMA2)
+static uint8_t mydata[11]; 
 static osjob_t sendjob;
-const unsigned TX_INTERVAL = 10; // Toutes les 10 secondes 
+const unsigned TX_INTERVAL = 10; 
 
 const lmic_pinmap lmic_pins = {
     .nss = 18, 
@@ -72,61 +72,64 @@ void do_send(osjob_t* j){
     if (LMIC.opmode & OP_TXRXPEND) {
         Serial.println(F("TX en cours, attente..."));
     } else {
-        // --- 1. LECTURE ACCÉLÉROMÈTRE ---
-        sensors_event_t event; 
-        mma.getEvent(&event);
-        
-        // Calcul de la magnitude totale 3D
-        float magnitude = sqrt(event.acceleration.x * event.acceleration.x + 
-                               event.acceleration.y * event.acceleration.y + 
-                               event.acceleration.z * event.acceleration.z);
-        
-        // On retire la gravité terrestre (~9.81 m/s2) pour isoler la secousse.
-        // On utilise abs() pour que la valeur soit toujours positive, même si ça "descend".
-        float vibration_instantanee = abs(magnitude - 9.81);
-        
-        // Préparation pour l'envoi LoRa (x100 pour garder 2 décimales)
-        uint16_t vibrationLevel = (uint16_t)(vibration_instantanee * 100);
+        // --- 1A. LECTURE MMA8451 N°1 ---
+        sensors_event_t event1; 
+        mma1.getEvent(&event1);
+        float mag1 = sqrt(event1.acceleration.x * event1.acceleration.x + 
+                          event1.acceleration.y * event1.acceleration.y + 
+                          event1.acceleration.z * event1.acceleration.z);
+        float vib1_inst = abs(mag1 - 9.81);
+        uint16_t vibration1_Level = (uint16_t)(vib1_inst * 100);
+
+        // --- 1B. LECTURE MMA8451 N°2 ---
+        sensors_event_t event2; 
+        mma2.getEvent(&event2);
+        float mag2 = sqrt(event2.acceleration.x * event2.acceleration.x + 
+                          event2.acceleration.y * event2.acceleration.y + 
+                          event2.acceleration.z * event2.acceleration.z);
+        float vib2_inst = abs(mag2 - 9.81);
+        uint16_t vibration2_Level = (uint16_t)(vib2_inst * 100);
 
         // --- 2. LECTURE TDS ---
         int rawADC = analogRead(TDS_PIN);
         float voltage = rawADC * VREF / 4095.0;
         uint16_t tdsValue = (uint16_t)(voltage * 500);
 
-        // --- 3. LECTURE TEMPÉRATURE DS18B20 ---
+        // --- 3. LECTURE TEMPÉRATURE ---
         sensors.requestTemperatures();
         float tempC = sensors.getTempCByIndex(0);
         int16_t tempPayload = (int16_t)(tempC * 100);
 
-        // --- 4. LECTURE NIVEAU D'EAU (SEN0257) ---
+        // --- 4. LECTURE NIVEAU D'EAU ---
         int rawLevelADC = analogRead(LEVEL_PIN);
         float levelVoltage = rawLevelADC * VREF / 4095.0;
         uint16_t levelPayload = (uint16_t)(levelVoltage * 1000);
 
         // --- 5. LECTURE CAPTEUR INFRAROUGE ---
-        // digitalRead lit l'état de la broche. On inverse (!) le résultat pour 
-        // avoir "true" (1) quand il y a un obstacle (le capteur renvoie LOW/0).
         bool obstaclePresence = !digitalRead(IR_PIN);
 
-        // --- 6. PRÉPARATION DU PAQUET (9 octets) ---
-        mydata[0] = vibrationLevel >> 8; 
-        mydata[1] = vibrationLevel & 0xFF;
+        // --- 6. PRÉPARATION DU PAQUET (11 octets) ---
+        mydata[0] = vibration1_Level >> 8; 
+        mydata[1] = vibration1_Level & 0xFF;
         
-        mydata[2] = tdsValue >> 8; 
-        mydata[3] = tdsValue & 0xFF;
+        // Ajout du 2eme capteur
+        mydata[2] = vibration2_Level >> 8; 
+        mydata[3] = vibration2_Level & 0xFF;
 
-        mydata[4] = tempPayload >> 8;
-        mydata[5] = tempPayload & 0xFF;
+        mydata[4] = tdsValue >> 8; 
+        mydata[5] = tdsValue & 0xFF;
 
-        mydata[6] = levelPayload >> 8;
-        mydata[7] = levelPayload & 0xFF;
+        mydata[6] = tempPayload >> 8;
+        mydata[7] = tempPayload & 0xFF;
 
-        mydata[8] = obstaclePresence ? 1 : 0;
+        mydata[8] = levelPayload >> 8;
+        mydata[9] = levelPayload & 0xFF;
 
-        // taille du payload à 9 
-        LMIC_setTxData2(1, mydata, 9, 0);
+        mydata[10] = obstaclePresence ? 1 : 0;
+
+        LMIC_setTxData2(1, mydata, 11, 0);
         
-        displayMsg("LORA : ENVOI", "Capteurs OK\nPaquet : 9 octets");
+        displayMsg("LORA : ENVOI", "Capteurs OK\nPaquet : 11 octets");
         Serial.println(F("Données envoyées !"));
     }
 }
@@ -152,19 +155,29 @@ void setup() {
     Wire.setClock(100000); 
     delay(200);            
 
-    // Initialisation de la broche infrarouge en entrée
     pinMode(IR_PIN, INPUT_PULLUP);
 
     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { for(;;); }
     displayMsg("BOOT", "Demarrage...");
 
-    if (!mma.begin()) {
-        displayMsg("ERREUR", "MMA8451 absent !\nVerifiez I2C.");
-        while (1);
+    // DÉMARRAGE DES DEUX CAPTEURS AVEC LEURS ADRESSES RESPECTIVES
+    bool erreur_mma = false;
+    
+    if (!mma1.begin(0x1D)) { // Adresse par défaut
+        Serial.println("MMA1 (0x1D) introuvable");
+        erreur_mma = true;
+    }
+    
+    if (!mma2.begin(0x1C)) { // Adresse modifiée
+        Serial.println("MMA2 (0x1C) introuvable");
+        erreur_mma = true;
+    }
+
+    if (erreur_mma) {
+        displayMsg("ERREUR", "Un MMA8451 (ou plus)\nest absent !");
     }
     
     sensors.begin();
-
     os_init();
     LMIC_reset();
     do_send(&sendjob);
