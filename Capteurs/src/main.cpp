@@ -91,29 +91,17 @@ void do_send(osjob_t* j){
         // --- 2. LECTURE TDS ---
         int rawADC = analogRead(TDS_PIN);
         float voltage = rawADC * VREF / 4095.0;
-        uint16_t tdsValue = 0; // On initialise à 0 par défaut
-        
-        // Si la tension dépasse 0.8V (seuil à ajuster selon vos tests), on calcule la valeur.
-        // Sinon, elle reste à 0, ignorant ainsi le bruit de la broche flottante.
-        if (voltage > 0.8) { 
-            tdsValue = (uint16_t)(voltage * 500); 
-        }
+        uint16_t tdsValue = (uint16_t)(voltage * 500);
 
         // --- 3. LECTURE TEMPÉRATURE DS18B20 ---
-        sensors.requestTemperatures(); 
+        sensors.requestTemperatures();
         float tempC = sensors.getTempCByIndex(0);
         int16_t tempPayload = (int16_t)(tempC * 100);
 
         // --- 4. LECTURE NIVEAU D'EAU (SEN0257) ---
         int rawLevelADC = analogRead(LEVEL_PIN);
         float levelVoltage = rawLevelADC * VREF / 4095.0;
-        uint16_t levelPayload = 0; // On initialise à 0 par défaut
-        
-        // Le SEN0257 renvoie 0.5V à 0 bar. 
-        // On met le seuil à 0.55V ou 0.6V pour absorber les fluctuations et le bruit.
-        if (levelVoltage > 0.55) {
-            levelPayload = (uint16_t)(levelVoltage * 1000);
-        }
+        uint16_t levelPayload = (uint16_t)(levelVoltage * 1000);
 
         // --- 5. LECTURE CAPTEUR INFRAROUGE ---
         // digitalRead lit l'état de la broche. On inverse (!) le résultat pour 
