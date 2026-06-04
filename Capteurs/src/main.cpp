@@ -26,7 +26,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_MMA8451 mma = Adafruit_MMA8451();
 
 // ====================================================================
-// 1. TES CLÉS LORAWAN 
+// 1. CLÉS LORAWAN 
 // ====================================================================
 static const u1_t PROGMEM APPEUI[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8); }
@@ -133,10 +133,9 @@ void do_send(osjob_t* j){
         mydata[6] = levelPayload >> 8;
         mydata[7] = levelPayload & 0xFF;
 
-        // Ajout de la présence (1 = true, 0 = false) sur le 9ème octet (index 8)
         mydata[8] = obstaclePresence ? 1 : 0;
 
-        // On passe la taille du payload à 9 !
+        // taille du payload à 9 
         LMIC_setTxData2(1, mydata, 9, 0);
         
         displayMsg("LORA : ENVOI", "Capteurs OK\nPaquet : 9 octets");
