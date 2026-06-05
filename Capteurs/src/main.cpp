@@ -40,10 +40,10 @@ void os_getDevKey (u1_t* buf) { memcpy_P(buf, APPKEY, 16); }
 // ====================================================================
 // 2. VARIABLES ET MAPPING PINOUT
 // ====================================================================
-// Le tableau passe à 11 octets (2 octets supplémentaires pour MMA2)
+// Le tableau passe à 11 octets
 static uint8_t mydata[11]; 
 static osjob_t sendjob;
-const unsigned TX_INTERVAL = 10; 
+const unsigned TX_INTERVAL = 10; // Toutes les 10 secondes
 
 const lmic_pinmap lmic_pins = {
     .nss = 18, 
@@ -112,7 +112,6 @@ void do_send(osjob_t* j){
         mydata[0] = vibration1_Level >> 8; 
         mydata[1] = vibration1_Level & 0xFF;
         
-        // Ajout du 2eme capteur
         mydata[2] = vibration2_Level >> 8; 
         mydata[3] = vibration2_Level & 0xFF;
 
